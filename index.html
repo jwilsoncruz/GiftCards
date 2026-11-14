@@ -28,6 +28,7 @@ const $=s=>document.querySelector(s),qs=new URLSearchParams(location.search);
 const N=(qs.get('n')||'gopollosrhosse').toLowerCase().replace(/[^a-z0-9_-]/g,''),ADMIN=qs.has('admin'),CODE=qs.get('c');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=t=>new Date(t).toLocaleDateString('es-BO');
+const FB={apiKey:"AIzaSyABU4LH_Jv5dAgkeB4U-7aUmtGb1bNUrvM",authDomain:"giftcards-4eea4.firebaseapp.com",projectId:"giftcards-4eea4",storageBucket:"giftcards-4eea4.firebasestorage.app",messagingSenderId:"570546256531",appId:"1:570546256531:web:9e1c0934c6eb99f883ab66"};
 let db,cfg={nombre:'Go Pollos Rhosse',logo:'',c1:'#d62828',c2:'#f77f00',titulo:'¡Un regalo para ti!',terminos:'Válida en el local. No canjeable por efectivo.',moneda:'Bs',dias:90,montos:'20,50,100',pin:'',refOn:true,refBono:10,refNuevo:10};
 const doc=()=>db.collection('gc_negocios').doc(N),col=()=>doc().collection('giftcards');
 const sha=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))].map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -44,7 +45,7 @@ function cardHTML(g){return `<div class="gc"><div class="gh">${cfg.logo?`<img sr
 function qr(code){const e=$('#qr');if(e)new QRCode(e,{text:link(code),width:110,height:110})}
 
 async function init(){
- const k=localStorage.getItem('fbcfg');
+ const k=localStorage.getItem('fbcfg')||(FB.projectId?JSON.stringify(FB):'');
  if(!k)return setup();
  try{firebase.initializeApp(JSON.parse(k));db=firebase.firestore();const d=await doc().get();if(d.exists)cfg={...cfg,...d.data()};theme()}catch(e){return setup('Error: '+e.message)}
  if(ADMIN)return admin();
