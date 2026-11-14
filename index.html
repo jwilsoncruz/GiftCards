@@ -122,7 +122,10 @@ function saveFB(){
 async function cliente(){
  const d=await col().doc(CODE.toUpperCase()).get();
  if(!d.exists){$('#app').innerHTML='<div class="box bad">Tarjeta no encontrada.</div>';return}
- const g=d.data();$('#app').innerHTML=cardHTML(g)+`<div class="box"><b>Movimientos</b>${(g.hist||[]).map(h=>`<div class="it"><span>${fmt(h.f)}</span><span>${h.t=='bono'?'+ ':'- '}${esc(cfg.moneda)} ${h.m}${h.t=='bono'?' (bono)':''}</span></div>`).join('')||'<br><small>Sin consumos aún.</small>'}</div>`+invitar(g);qr(g.code)}
+ const g=d.data();$('#app').innerHTML=cardHTML(g)+`<div id="caja"></div><div class="box"><b>Movimientos</b>${(g.hist||[]).map(h=>`<div class="it"><span>${fmt(h.f)}</span><span>${h.t=='bono'?'+ ':'- '}${esc(cfg.moneda)} ${h.m}${h.t=='bono'?' (bono)':''}</span></div>`).join('')||'<br><small>Sin consumos aún.</small>'}</div>`+invitar(g);qr(g.code);
+ const un=firebase.auth().onAuthStateChanged(u=>{un();if(u&&cfg.owner===u.uid&&estado(g)=='Activa'){const c=$('#caja');if(c)c.innerHTML=cajaHTML(g)}})}
+function cajaHTML(g){return `<div class="box"><b>Caja: canjear consumo</b><br><small>Saldo disponible: ${esc(cfg.moneda)} ${g.saldo}</small><input id="cm" type="number" inputmode="decimal" placeholder="Monto del consumo (${esc(cfg.moneda)})"><button class="g" onclick="canjearCaja('${g.code}')">Canjear</button></div>`}
+async function canjearCaja(c){const m=parseFloat($('#cm').value);if(!(m>0))return alert('Escribe el monto del consumo');await canjear(c,m);cliente()}
 
 function admin(){
  $('#app').innerHTML=`<div class="box"><h2>Panel de ${esc(cfg.nombre)}</h2><input id="em" type="email" placeholder="Correo"><input id="pw" type="password" placeholder="Contraseña"><button onclick="login()">Entrar</button></div>`;
@@ -148,20 +151,30 @@ function crear(){
 async function crearGC(){
  const m=+$('#m').value;if(!(m>0))return alert('Escribe un monto');
  const g={code:gen(),monto:m,saldo:m,para:$('#para').value.trim(),de:$('#de').value.trim(),msg:$('#msg').value.trim(),creado:Date.now(),vence:Date.now()+cfg.dias*864e5,hist:[]};
- await col().doc(g.code).set(g);
+ await col().doc(g.code).set(g);window.ULT=g;
  const txt=encodeURIComponent(`🎁 ${cfg.nombre} te regala una Gift Card de ${cfg.moneda} ${m}. Mírala aquí: ${link(g.code)}`);
- $('#res').innerHTML=cardHTML(g)+`<div class="r"><button class="g" onclick="window.open('https://wa.me/?text=${txt}')">WhatsApp</button><button class="s" onclick="navigator.clipboard.writeText('${link(g.code)}');alert('Enlace copiado')">Copiar enlace</button><button class="s" onclick="print()">Imprimir</button></div>`;qr(g.code)}
+ $('#res').innerHTML=cardHTML(g)+`<div class="r"><button class="g" onclick="window.open('https://wa.me/?text=${txt}')">WhatsApp</button><button class="s" onclick="navigator.clipboard.writeText('${link(g.code)}');alert('Enlace copiado')">Copiar enlace</button><button class="s" onclick="imprimir(ULT)">Imprimir 2 caras</button></div>`;qr(g.code)}
 async function lista(){
  $('#v').innerHTML=`<div class="box"><div class="r"><input id="q" placeholder="Buscar por código"><button style="flex:0 0 90px" onclick="lista()">Buscar</button></div><div id="l">Cargando…</div></div>`;
  const q=($('#q').value||'').trim().toUpperCase();let ds;
  if(q){const d=await col().doc(q).get();ds=d.exists?[d]:[]}else ds=(await col().orderBy('creado','desc').limit(50).get()).docs;
- $('#l').innerHTML=ds.map(d=>{const g=d.data(),e=estado(g);return `<div class="it"><span><b>${g.code}</b> ${esc(g.para)}<br><small>${esc(cfg.moneda)} ${g.saldo}/${g.monto} · <span class="${e=='Activa'?'ok':'bad'}">${e}</span> · vence ${fmt(g.vence)}</small></span><span><button onclick="window.open('${link(g.code)}')">Ver</button> ${e=='Activa'?`<button class="g" onclick="canjear('${g.code}')">Canjear</button>`:''}</span></div>`}).join('')||'<small>Sin tarjetas.</small>'}
-async function canjear(code){
- const m=parseFloat(prompt('Monto a descontar ('+cfg.moneda+'):'));if(!(m>0))return;
+ $('#l').innerHTML=ds.map(d=>{const g=d.data(),e=estado(g);return `<div class="it"><span><b>${g.code}</b> ${esc(g.para)}<br><small>${esc(cfg.moneda)} ${g.saldo}/${g.monto} · <span class="${e=='Activa'?'ok':'bad'}">${e}</span> · vence ${fmt(g.vence)}</small></span><span><button onclick="window.open('${link(g.code)}')">Ver</button> <button class="s" onclick="impCod('${g.code}')">Imprimir</button> ${e=='Activa'?`<button class="g" onclick="canjear('${g.code}')">Canjear</button>`:''}</span></div>`}).join('')||'<small>Sin tarjetas.</small>'}
+function printHTML(g){
+ const base=cardHTML(g).replace(/<div class="pista">[\s\S]*?<\/div>/,''),a=base.replace('id="qr"','').replace('<div class="cw','<div class="cw sf'),b=base.replace('<div class="cw','<div class="cw sb');
+ return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Gift card ${g.code}</title><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet"><style>${document.querySelector('style').textContent}
+:root{--c1:${cfg.c1};--c2:${cfg.c2}}body{background:#fff;margin:0;padding:8mm}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.cw{width:85.6mm;max-width:none;margin:0 0 8mm;cursor:default}.ci{transition:none;transform:none!important}.cfr::after{display:none}.sf .cbk,.sb .cfr{display:none}.sb .cbk{transform:none}
+@page{margin:8mm}@media print{body *{visibility:visible!important}.cw{position:static!important;width:85.6mm!important}.pista{display:none}}</style></head><body>${a}${b}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>
+<script>window.onload=function(){try{new QRCode(document.getElementById('qr'),{text:'${link(g.code)}',width:220,height:220,correctLevel:QRCode.CorrectLevel.M})}catch(e){}setTimeout(function(){print()},800)}<\/script></body></html>`}
+function imprimir(g,w){w=w||window.open('','_blank');if(!w)return alert('Permite las ventanas emergentes para imprimir');w.document.write(printHTML(g));w.document.close()}
+async function impCod(c){const w=window.open('','_blank');const d=await col().doc(c).get();if(!d.exists){if(w)w.close();return alert('No existe')}imprimir(d.data(),w)}
+async function canjear(code,m0){
+ const m=m0??parseFloat(prompt('Monto a descontar ('+cfg.moneda+'):'));if(!(m>0))return;
  try{await db.runTransaction(async t=>{const r=col().doc(code),d=await t.get(r);if(!d.exists)throw'No existe';const g=d.data();
   if(g.vence<Date.now())throw'Tarjeta vencida';if(m>g.saldo)throw'Saldo insuficiente ('+g.saldo+')';
   t.update(r,{saldo:g.saldo-m,hist:firebase.firestore.FieldValue.arrayUnion({f:Date.now(),m})})});alert('Canje realizado')}catch(e){alert(e.message||e)}
- lista()}
+ if($('#v'))lista()}
 
 function invitar(g){
  if(!cfg.refOn)return '';
