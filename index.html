@@ -52,10 +52,18 @@ async function init(){
  if(CODE)return cliente();
  $('#app').innerHTML=`<div class="box"><h2>${esc(cfg.nombre)}</h2>Gift Cards. Abre el enlace o escanea el QR de tu tarjeta.</div>`;
 }
-function setup(err){
+function setup(err,v){
  $('#app').innerHTML=`<div class="box"><h2>Conectar Firebase</h2><small>Firebase → Configuración del proyecto → Tus apps (web) → copia el bloque firebaseConfig y pégalo aquí.</small>
- <textarea id="fb" rows="8" placeholder='{ apiKey:"...", projectId:"..." }'></textarea><div class="bad">${esc(err||'')}</div><button onclick="saveFB()">Guardar y continuar</button></div>`}
-function saveFB(){try{const t=$('#fb').value,o={};for(const m of t.matchAll(/(\w+)\s*:\s*["']([^"']+)["']/g))o[m[1]]=m[2];if(!o.projectId||!o.apiKey)throw Error('Falta projectId o apiKey');localStorage.setItem('fbcfg',JSON.stringify(o));location.reload()}catch(e){setup('Config inválida: '+e.message)}}
+ <textarea id="fb" rows="8" placeholder='{ apiKey:"...", projectId:"..." }'>${esc(v||'')}</textarea><div class="bad">${esc(err||'')}</div><button onclick="saveFB()">Guardar y continuar</button></div>`}
+function saveFB(){
+ const v=$('#fb').value;
+ try{
+  if(!v.trim())throw Error('la caja está vacía, pega primero el bloque de Firebase');
+  const t=v.replace(/[“”„‟]/g,'"').replace(/[‘’‚‛]/g,"'"),o={};
+  for(const m of t.matchAll(/(\w+)\s*:\s*["'`]([^"'`]+)["'`]/g))o[m[1]]=m[2];
+  if(!o.projectId||!o.apiKey)throw Error('no encontré '+(o.apiKey?'projectId':'apiKey')+'. Detecté: '+(Object.keys(o).join(', ')||'nada'));
+  localStorage.setItem('fbcfg',JSON.stringify(o));location.reload()
+ }catch(e){setup('Config inválida: '+e.message,v)}}
 
 async function cliente(){
  const d=await col().doc(CODE.toUpperCase()).get();
