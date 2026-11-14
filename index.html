@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gift Cards</title>
+<style>
+:root{--c1:#d62828;--c2:#f77f00}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Arial,sans-serif;background:#f3f3f5;color:#222}
+.w{max-width:560px;margin:0 auto;padding:14px}
+h2,h3{margin:8px 0}input,select,textarea,button{font:inherit;padding:10px;border-radius:8px;border:1px solid #ccc;width:100%;margin:4px 0}
+button{background:var(--c1);color:#fff;border:0;cursor:pointer;font-weight:600}button.s{background:#555}button.g{background:#25a244}
+.r{display:flex;gap:6px;flex-wrap:wrap}.r>*{flex:1;min-width:90px}
+.box{background:#fff;border-radius:12px;padding:14px;margin:10px 0;box-shadow:0 1px 4px #0002}
+.tabs{display:flex;gap:6px}.tabs button{background:#ddd;color:#222}.tabs button.on{background:var(--c1);color:#fff}
+.gc{background:linear-gradient(135deg,var(--c1),var(--c2));color:#fff;border-radius:18px;padding:20px;text-align:center;box-shadow:0 6px 18px #0004}
+.gh{display:flex;align-items:center;justify-content:center;gap:10px;font-size:20px}.gh img{height:44px;border-radius:8px}
+.gt{margin:10px 0;font-size:18px}.gm{font-size:44px;font-weight:800}.gs{font-size:13px;opacity:.95;margin:4px 0}
+.gq{background:#fff;display:inline-block;padding:8px;border-radius:10px;margin:10px 0}.gcode{font:700 22px monospace;letter-spacing:3px}
+.it{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid #eee;padding:8px 0;font-size:14px}.it button{width:auto;padding:6px 10px}
+.bad{color:#c00}.ok{color:#080}small{color:#666}
+@media print{body *{visibility:hidden}.gc,.gc *{visibility:visible}.gc{position:absolute;left:0;top:0;width:100%}}
+</style></head><body><div class="w" id="app">Cargando…</div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const $=s=>document.querySelector(s),qs=new URLSearchParams(location.search);
+const N=(qs.get('n')||'gopollosrhosse').toLowerCase().replace(/[^a-z0-9_-]/g,''),ADMIN=qs.has('admin'),CODE=qs.get('c');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=t=>new Date(t).toLocaleDateString('es-BO');
+let db,cfg={nombre:'Go Pollos Rhosse',logo:'',c1:'#d62828',c2:'#f77f00',titulo:'¡Un regalo para ti!',terminos:'Válida en el local. No canjeable por efectivo.',moneda:'Bs',dias:90,montos:'20,50,100',pin:'',refOn:true,refBono:10,refNuevo:10};
+const doc=()=>db.collection('gc_negocios').doc(N),col=()=>doc().collection('giftcards');
+const sha=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))].map(b=>b.toString(16).padStart(2,'0')).join('');
+const theme=()=>{document.documentElement.style.setProperty('--c1',cfg.c1);document.documentElement.style.setProperty('--c2',cfg.c2)};
+const estado=g=>g.saldo<=0?'Canjeada':g.vence<Date.now()?'Vencida':'Activa';
+const link=c=>location.origin+location.pathname+'?n='+N+'&c='+c;
+const gen=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';return Array.from({length:8},()=>a[Math.random()*a.length|0]).join('')};
+
+function cardHTML(g){return `<div class="gc"><div class="gh">${cfg.logo?`<img src="${esc(cfg.logo)}">`:''}<b>${esc(cfg.nombre)}</b></div>
+<div class="gt">${esc(cfg.titulo)}</div><div class="gm">${esc(cfg.moneda)} ${g.saldo}</div>
+<div class="gs">${g.para?'Para: '+esc(g.para):''}${g.de?' · De: '+esc(g.de):''}</div><div class="gs">${esc(g.msg)}</div>
+<div class="gq" id="qr"></div><div class="gcode">${g.code}</div>
+<div class="gs">Vence: ${fmt(g.vence)} · ${estado(g)}</div><div class="gs">${esc(cfg.terminos)}</div></div>`}
+function qr(code){const e=$('#qr');if(e)new QRCode(e,{text:link(code),width:110,height:110})}
+
+async function init(){
+ const k=localStorage.getItem('fbcfg');
+ if(!k)return setup();
+ try{firebase.initializeApp(JSON.parse(k));db=firebase.firestore();const d=await doc().get();if(d.exists)cfg={...cfg,...d.data()};theme()}catch(e){return setup('Error: '+e.message)}
+ if(ADMIN)return admin();
+ if(qs.get('ref'))return referido();
+ if(CODE)return cliente();
+ $('#app').innerHTML=`<div class="box"><h2>${esc(cfg.nombre)}</h2>Gift Cards. Abre el enlace o escanea el QR de tu tarjeta.</div>`;
+}
+function setup(err){
+ $('#app').innerHTML=`<div class="box"><h2>Conectar Firebase</h2><small>Firebase → Configuración del proyecto → Tus apps (web) → copia el bloque firebaseConfig y pégalo aquí.</small>
+ <textarea id="fb" rows="8" placeholder='{ apiKey:"...", projectId:"..." }'></textarea><div class="bad">${esc(err||'')}</div><button onclick="saveFB()">Guardar y continuar</button></div>`}
+function saveFB(){try{const t=$('#fb').value,o={};for(const m of t.matchAll(/(\w+)\s*:\s*["']([^"']+)["']/g))o[m[1]]=m[2];if(!o.projectId||!o.apiKey)throw Error('Falta projectId o apiKey');localStorage.setItem('fbcfg',JSON.stringify(o));location.reload()}catch(e){setup('Config inválida: '+e.message)}}
+
+async function cliente(){
+ const d=await col().doc(CODE.toUpperCase()).get();
+ if(!d.exists){$('#app').innerHTML='<div class="box bad">Tarjeta no encontrada.</div>';return}
+ const g=d.data();$('#app').innerHTML=cardHTML(g)+`<div class="box"><b>Movimientos</b>${(g.hist||[]).map(h=>`<div class="it"><span>${fmt(h.f)}</span><span>${h.t=='bono'?'+ ':'- '}${esc(cfg.moneda)} ${h.m}${h.t=='bono'?' (bono)':''}</span></div>`).join('')||'<br><small>Sin consumos aún.</small>'}</div>`+invitar(g);qr(g.code)}
+
+function admin(){
+ $('#app').innerHTML=`<div class="box"><h2>Panel de ${esc(cfg.nombre)}</h2><input id="em" type="email" placeholder="Correo"><input id="pw" type="password" placeholder="Contraseña"><button onclick="login()">Entrar</button></div>`;
+ firebase.auth().onAuthStateChanged(u=>{if(u)entrar(u)})}
+async function login(){try{await firebase.auth().signInWithEmailAndPassword($('#em').value.trim(),$('#pw').value)}catch(e){alert('No se pudo entrar: '+e.code)}}
+async function entrar(u){
+ try{
+  const d=await doc().get();
+  if(!d.exists){cfg.owner=u.uid;await doc().set(cfg)}
+  else if(d.data().owner!==u.uid){$('#app').innerHTML='<div class="box bad">Este usuario no es administrador de este negocio.<br><button onclick="firebase.auth().signOut().then(()=>location.reload())">Salir</button></div>';return}
+  else cfg={...cfg,...d.data()};
+  panel()
+ }catch(e){alert('Error: '+e.message)}}
+
+function panel(t='crear'){
+ $('#app').innerHTML=`<h3>${esc(cfg.nombre)}</h3><div class="tabs">${['crear','tarjetas','referidos','ajustes'].map(x=>`<button class="${x==t?'on':''}" onclick="panel('${x}')">${x[0].toUpperCase()+x.slice(1)}</button>`).join('')}</div><div id="v"></div>`;
+ ({crear,tarjetas:lista,referidos,ajustes})[t]();
+}
+function crear(){
+ $('#v').innerHTML=`<div class="box"><div class="r">${cfg.montos.split(',').map(m=>`<button class="s" onclick="$('#m').value=${+m}">${esc(cfg.moneda)} ${+m}</button>`).join('')}</div>
+ <input id="m" type="number" placeholder="Monto"><input id="para" placeholder="Para (nombre del cliente)"><input id="de" placeholder="De (opcional)">
+ <textarea id="msg" rows="2" placeholder="Mensaje (opcional)"></textarea><button onclick="crearGC()">Crear gift card</button></div><div id="res"></div>`}
+async function crearGC(){
+ const m=+$('#m').value;if(!(m>0))return alert('Escribe un monto');
+ const g={code:gen(),monto:m,saldo:m,para:$('#para').value.trim(),de:$('#de').value.trim(),msg:$('#msg').value.trim(),creado:Date.now(),vence:Date.now()+cfg.dias*864e5,hist:[]};
+ await col().doc(g.code).set(g);
+ const txt=encodeURIComponent(`🎁 ${cfg.nombre} te regala una Gift Card de ${cfg.moneda} ${m}. Mírala aquí: ${link(g.code)}`);
+ $('#res').innerHTML=cardHTML(g)+`<div class="r"><button class="g" onclick="window.open('https://wa.me/?text=${txt}')">WhatsApp</button><button class="s" onclick="navigator.clipboard.writeText('${link(g.code)}');alert('Enlace copiado')">Copiar enlace</button><button class="s" onclick="print()">Imprimir</button></div>`;qr(g.code)}
+async function lista(){
+ $('#v').innerHTML=`<div class="box"><div class="r"><input id="q" placeholder="Buscar por código"><button style="flex:0 0 90px" onclick="lista()">Buscar</button></div><div id="l">Cargando…</div></div>`;
+ const q=($('#q').value||'').trim().toUpperCase();let ds;
+ if(q){const d=await col().doc(q).get();ds=d.exists?[d]:[]}else ds=(await col().orderBy('creado','desc').limit(50).get()).docs;
+ $('#l').innerHTML=ds.map(d=>{const g=d.data(),e=estado(g);return `<div class="it"><span><b>${g.code}</b> ${esc(g.para)}<br><small>${esc(cfg.moneda)} ${g.saldo}/${g.monto} · <span class="${e=='Activa'?'ok':'bad'}">${e}</span> · vence ${fmt(g.vence)}</small></span><span><button onclick="window.open('${link(g.code)}')">Ver</button> ${e=='Activa'?`<button class="g" onclick="canjear('${g.code}')">Canjear</button>`:''}</span></div>`}).join('')||'<small>Sin tarjetas.</small>'}
+async function canjear(code){
+ const m=parseFloat(prompt('Monto a descontar ('+cfg.moneda+'):'));if(!(m>0))return;
+ try{await db.runTransaction(async t=>{const r=col().doc(code),d=await t.get(r);if(!d.exists)throw'No existe';const g=d.data();
+  if(g.vence<Date.now())throw'Tarjeta vencida';if(m>g.saldo)throw'Saldo insuficiente ('+g.saldo+')';
+  t.update(r,{saldo:g.saldo-m,hist:firebase.firestore.FieldValue.arrayUnion({f:Date.now(),m})})});alert('Canje realizado')}catch(e){alert(e.message||e)}
+ lista()}
+
+function invitar(g){
+ if(!cfg.refOn)return '';
+ const u=location.origin+location.pathname+'?n='+N+'&ref='+g.code;
+ const t=encodeURIComponent(`🍗 Te invito a ${cfg.nombre}. Regístrate aquí y recibe una Gift Card de ${cfg.moneda} ${cfg.refNuevo}: ${u}`);
+ return `<div class="box"><b>Invita a un amigo</b><br><small>Tú ganas ${esc(cfg.moneda)} ${cfg.refBono} y tu amigo ${esc(cfg.moneda)} ${cfg.refNuevo} cuando consuma por primera vez.</small><button class="g" onclick="window.open('https://wa.me/?text=${t}')">Invitar por WhatsApp</button></div>`}
+async function referido(){
+ const r=qs.get('ref').toUpperCase(),d=await col().doc(r).get();
+ if(!cfg.refOn||!d.exists){$('#app').innerHTML='<div class="box bad">Invitación no válida.</div>';return}
+ $('#app').innerHTML=`<div class="gc"><div class="gh">${cfg.logo?`<img src="${esc(cfg.logo)}">`:''}<b>${esc(cfg.nombre)}</b></div><div class="gt">¡Te invitaron!</div><div class="gm">${esc(cfg.moneda)} ${cfg.refNuevo}</div><div class="gs">Regístrate y recibe tu Gift Card en tu primer consumo.</div></div>
+ <div class="box"><input id="rn" placeholder="Tu nombre"><input id="rt" type="tel" inputmode="tel" placeholder="Tu WhatsApp"><button onclick="guardarRef('${r}')">Quiero mi regalo</button></div>`}
+async function guardarRef(r){
+ const n=$('#rn').value.trim(),t=$('#rt').value.replace(/\D/g,'');
+ if(!n||t.length<7)return alert('Escribe tu nombre y tu WhatsApp');
+ try{await doc().collection('referidos').doc(t).set({nombre:n,tel:t,ref:r,creado:Date.now(),estado:'pendiente'})}catch(e){return alert('Este número ya está registrado o hubo un error')}
+ $('#app').innerHTML='<div class="box ok"><h3>¡Listo, '+esc(n)+'!</h3>Avisa en el local que te invitaron. Al consumir recibirás tu Gift Card por WhatsApp.</div>'}
+async function referidos(){
+ $('#v').innerHTML='<div class="box"><b>Referidos</b><div id="rl">Cargando…</div></div>';
+ const ds=(await doc().collection('referidos').orderBy('creado','desc').limit(50).get()).docs;
+ $('#rl').innerHTML=ds.map(d=>{const x=d.data(),p=x.estado=='pendiente';return `<div class="it"><span><b>${esc(x.nombre)}</b> · ${esc(x.tel)}<br><small>Invitó: ${esc(x.ref)} · ${fmt(x.creado)} · <span class="${p?'bad':'ok'}">${esc(x.estado)}</span></small></span>${p?`<span><button class="g" onclick="confirmarRef('${d.id}')">Confirmar consumo</button></span>`:''}</div>`}).join('')||'<small>Sin referidos aún.</small>'}
+async function confirmarRef(id){
+ if(!confirm('¿El invitado ya consumió? Se darán los premios a ambos.'))return;
+ const rr=doc().collection('referidos').doc(id),nuevo=gen();
+ try{
+  const tel=await db.runTransaction(async t=>{
+   const d=await t.get(rr);if(!d.exists||d.data().estado!='pendiente')throw'Ya fue procesado';
+   const x=d.data(),gr=col().doc(x.ref),g=await t.get(gr);if(!g.exists)throw'La tarjeta de quien invitó no existe';
+   const b=+cfg.refBono,vn=+cfg.refNuevo,now=Date.now(),v=cfg.dias*864e5,o=g.data();
+   t.update(gr,{saldo:o.saldo+b,monto:o.monto+b,vence:Math.max(o.vence,now+v),hist:firebase.firestore.FieldValue.arrayUnion({f:now,m:b,t:'bono'})});
+   t.set(col().doc(nuevo),{code:nuevo,monto:vn,saldo:vn,para:x.nombre,de:cfg.nombre,msg:'¡Bienvenido por invitación!',creado:now,vence:now+v,hist:[],tel:x.tel});
+   t.update(rr,{estado:'confirmado',tarjeta:nuevo});return x.tel});
+  const txt=encodeURIComponent(`🎁 ¡Gracias por visitarnos en ${cfg.nombre}! Tu Gift Card de ${cfg.moneda} ${cfg.refNuevo}: ${link(nuevo)}`);
+  window.open('https://wa.me/'+(tel.length==8?'591':'')+tel+'?text='+txt);
+ }catch(e){alert(e.message||e)}
+ referidos()}
+function ajustes(){
+ const f=(k,l,t='text')=>`<label>${l}<input id="a_${k}" type="${t}" value="${esc(cfg[k])}"></label>`;
+ $('#v').innerHTML=`<div class="box">${f('nombre','Nombre del negocio')}${f('logo','Logo (URL de imagen)')}${f('titulo','Título de la tarjeta')}
+ <div class="r">${f('c1','Color 1','color')}${f('c2','Color 2','color')}</div>${f('moneda','Moneda')}${f('dias','Validez (días)','number')}${f('montos','Montos rápidos (separados por coma)')}
+ <label>Programa de referidos<select id="a_refOn"><option value="1" ${cfg.refOn?'selected':''}>Activo</option><option value="0" ${cfg.refOn?'':'selected'}>Apagado</option></select></label>
+ <div class="r">${f('refBono','Bono para quien invita','number')}${f('refNuevo','Regalo para el invitado','number')}</div>
+ <label>Términos<textarea id="a_terminos" rows="2">${esc(cfg.terminos)}</textarea></label>
+ <button onclick="guardar()">Guardar</button><button class="s" onclick="firebase.auth().signOut().then(()=>location.reload())">Cerrar sesión</button><button class="s" onclick="if(confirm('¿Desconectar Firebase de este navegador?')){localStorage.removeItem('fbcfg');location.reload()}">Cambiar conexión Firebase</button></div>`}
+async function guardar(){
+ for(const k of ['nombre','logo','titulo','c1','c2','moneda','dias','montos','terminos'])cfg[k]=k=='dias'?+$('#a_'+k).value||90:$('#a_'+k).value;
+ cfg.refOn=$('#a_refOn').value=='1';cfg.refBono=+$('#a_refBono').value||0;cfg.refNuevo=+$('#a_refNuevo').value||0;
+ await doc().set(cfg);theme();alert('Guardado')}
+init();
+</script></body></html>
